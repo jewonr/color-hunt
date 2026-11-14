@@ -1,0 +1,1372 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>색깔 사냥 — 닮은 색 찾기 대결</title>
+
+<!-- 글꼴: 붓글씨(제목·점수) / 손글씨(본문) / 또박또박한 안내문 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Gowun+Dodum&family=Nanum+Brush+Script&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --paper: #f6eedd;        /* 도화지 */
+  --paper-2: #fffaf0;      /* 수채화지 */
+  --ink: #3a2e28;          /* 연필·먹 선 */
+  --ink-soft: #7d6c60;
+  --wood: #d9a868;
+  --wood-dark: #a9763f;
+  --red: #e2553a;
+  --blue: #3f5fae;
+  --yellow: #eab543;
+  --green: #6f9d4f;
+
+  --target: rgb(226, 85, 58);   /* 찾아야 할 색 (JS가 바꿈) */
+  --found: rgb(200, 200, 200);  /* 찍은 색 */
+  --live: rgb(200, 200, 200);   /* 지금 카메라에 보이는 색 */
+
+  --f-brush: 'Nanum Brush Script', 'Gaegu', cursive;
+  --f-hand: 'Gaegu', 'Gowun Dodum', sans-serif;
+  --f-text: 'Gowun Dodum', 'Apple SD Gothic Neo', sans-serif;
+
+  --wobble: 255px 18px 225px 18px / 18px 225px 18px 255px;
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .32  0 0 0 0 .24  0 0 0 0 .16  0 0 0 .11 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: var(--f-hand);
+  font-size: 20px;
+  line-height: 1.35;
+  word-break: keep-all;
+  background-color: var(--paper);
+  background-image:
+    var(--grain),
+    radial-gradient(46vmax 32vmax at 4% 6%, rgba(226, 85, 58, .16), transparent 70%),
+    radial-gradient(40vmax 34vmax at 98% 18%, rgba(63, 95, 174, .14), transparent 70%),
+    radial-gradient(44vmax 30vmax at 88% 100%, rgba(234, 181, 67, .20), transparent 70%),
+    radial-gradient(38vmax 30vmax at 0% 96%, rgba(111, 157, 79, .15), transparent 70%);
+  background-attachment: fixed;
+  padding-bottom: 40px;
+}
+
+h1, h2, p { margin: 0; }
+
+/* ───────── 머리말 ───────── */
+.masthead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 18px;
+  padding: 22px 20px 6px;
+  text-align: center;
+}
+.masthead h1 {
+  font-family: var(--f-brush);
+  font-weight: 400;
+  font-size: clamp(3.4rem, 9vw, 5.6rem);
+  line-height: .95;
+  position: relative;
+  padding: 0 .2em;
+}
+.masthead h1::after {            /* 제목 밑 삼색 붓자국 */
+  content: '';
+  position: absolute;
+  left: 2%; right: 2%; bottom: -.06em;
+  height: .2em;
+  border-radius: 60% 40% 70% 30% / 60% 70% 30% 40%;
+  background: linear-gradient(90deg, var(--red) 0 30%, var(--yellow) 36% 64%, var(--blue) 70% 100%);
+  opacity: .5;
+  z-index: -1;
+  filter: url(#rough);
+}
+.masthead .brush-art { width: clamp(70px, 12vw, 120px); flex: none; transform: rotate(-18deg) translateY(-6px); }
+.tagline {
+  font-family: var(--f-text);
+  font-size: .95rem;
+  color: var(--ink-soft);
+  text-align: center;
+  padding: 10px 20px 0;
+}
+.tags { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 16px; margin: 12px auto 26px; padding: 0 16px; }
+.round-tag {
+  font-weight: 700;
+  font-size: 1.15rem;
+  padding: .1em .9em .15em;
+  background: var(--yellow);
+  border: 2.5px solid var(--ink);
+  border-radius: var(--wobble);
+  transform: rotate(-1.5deg);
+}
+.turn-tag {                      /* 지금 누구 차례인지 (선수 색으로 칠함) */
+  font-family: var(--f-brush);
+  font-size: 2rem;
+  line-height: 1;
+  color: #fff8ec;
+  background: var(--pc, var(--red));
+  border: 2.5px solid var(--ink);
+  border-radius: var(--wobble);
+  padding: .12em .7em .2em;
+  box-shadow: 3px 4px 0 var(--ink);
+  transform: rotate(1.2deg);
+}
+.turn-tag.pop { animation: tagpop .5s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes tagpop { from { transform: scale(.6) rotate(-6deg); } to { transform: rotate(1.2deg); } }
+
+/* ───────── 화실(본문 배치) ───────── */
+.studio {
+  display: grid;
+  grid-template-columns: minmax(214px, .5fr) minmax(0, 1fr) minmax(214px, .5fr);
+  grid-template-areas: "target easel result";
+  gap: 34px clamp(24px, 3vw, 38px);
+  align-items: start;
+  max-width: 1260px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+.target { grid-area: target; }
+.easel  { grid-area: easel; }
+.result { grid-area: result; }
+
+/* ───────── 종이 한 장 ───────── */
+.sheet {
+  position: relative;
+  background: var(--paper-2) var(--grain);
+  border: 2.5px solid var(--ink);
+  border-radius: 3px 9px 4px 11px / 10px 3px 11px 4px;
+  box-shadow: 6px 7px 0 rgba(58, 46, 40, .17);
+  padding: 30px 22px 22px;
+  container-type: inline-size;
+}
+.sheet h2 {
+  font-family: var(--f-brush);
+  font-weight: 400;
+  font-size: 2.3rem;
+  line-height: 1;
+  text-align: center;
+}
+.target { transform: rotate(-1.3deg); }
+.target::before {                /* 마스킹 테이프 */
+  content: '';
+  position: absolute;
+  top: -15px; left: 50%;
+  width: 118px; height: 30px;
+  transform: translateX(-50%) rotate(-3deg);
+  background: rgba(234, 181, 67, .72);
+  clip-path: polygon(0 0, 4% 12%, 0 25%, 4% 38%, 0 50%, 4% 62%, 0 75%, 4% 88%, 0 100%, 100% 100%, 96% 88%, 100% 75%, 96% 62%, 100% 50%, 96% 38%, 100% 25%, 96% 12%, 100% 0);
+}
+
+.stroke {
+  display: block; width: 100%; height: auto; margin: 4px 0 2px;
+  /* 흰색처럼 밝은 물감도 종이 위에서 보이도록 연필선 같은 테두리를 두른다 */
+  filter: drop-shadow(0 0 .7px rgba(58, 46, 40, .8)) drop-shadow(2px 3px 0 rgba(58, 46, 40, .12));
+}
+.stroke path { fill: none; stroke: var(--target); stroke-width: 40; stroke-linecap: round; stroke-linejoin: round; }
+
+.code {
+  font-weight: 700;
+  font-size: clamp(1.1rem, 10.5cqi, 1.9rem);
+  text-align: center;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+.hex { text-align: center; color: var(--ink-soft); font-size: 1.1rem; margin-top: -2px; }
+
+.channels { list-style: none; margin: 14px 0 18px; padding: 0; display: grid; gap: 7px; }
+.channels li { display: grid; grid-template-columns: 1.3em 1fr 2.2em; align-items: center; gap: 8px; font-weight: 700; }
+.channels .track {
+  height: 15px;
+  border: 2px solid var(--ink);
+  border-radius: var(--wobble);
+  overflow: hidden;
+  background: rgba(255, 255, 255, .6);
+}
+.channels .fill { display: block; height: 100%; width: 0; transition: width .5s cubic-bezier(.3, 1.3, .5, 1); }
+.channels .r .fill { background: #e0473a; }
+.channels .g .fill { background: #55a84a; }
+.channels .b .fill { background: #3f6fd0; }
+.channels .val { text-align: right; font-variant-numeric: tabular-nums; }
+
+.row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+
+/* ───────── 버튼 ───────── */
+.btn {
+  font-family: var(--f-hand);
+  font-weight: 700;
+  font-size: 1.12rem;
+  line-height: 1.2;
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 2.5px solid var(--ink);
+  border-radius: var(--wobble);
+  padding: .38em 1em .44em;
+  box-shadow: 3px 4px 0 var(--ink);
+  cursor: pointer;
+  transition: transform .08s, box-shadow .08s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn:hover { transform: translate(-1px, -1px); box-shadow: 4px 5px 0 var(--ink); }
+.btn:active { transform: translate(3px, 4px); box-shadow: 0 0 0 var(--ink); }
+.btn:focus-visible { outline: 3px dashed var(--blue); outline-offset: 4px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: 3px 4px 0 var(--ink); }
+.btn.primary { background: var(--red); color: #fff8ec; }
+.btn.sun { background: var(--yellow); }
+.btn.shutter {
+  font-family: var(--f-brush);
+  font-weight: 400;
+  font-size: 2.3rem;
+  line-height: 1;
+  padding: .22em .9em .3em;
+  min-width: 6.2em;
+}
+[hidden] { display: none !important; }
+
+/* ───────── 이젤과 캔버스 ───────── */
+.easel { display: flex; flex-direction: column; align-items: center; max-width: 660px; width: 100%; margin: 0 auto; }
+.wood {
+  background:
+    repeating-linear-gradient(92deg, transparent 0 9px, rgba(120, 78, 36, .18) 9px 10px),
+    linear-gradient(var(--wood), #cf9a58);
+  border: 2.5px solid var(--ink);
+}
+.mast { width: 30px; height: 30px; border-radius: 6px 6px 0 0; border-bottom: 0; }
+.canvas {
+  position: relative;
+  width: 100%;
+  padding: 13px;
+  border: 2.5px solid var(--ink);
+  border-radius: 4px 6px 4px 7px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 3px, rgba(120, 100, 70, .07) 3px 4px),
+    repeating-linear-gradient(90deg, transparent 0 3px, rgba(120, 100, 70, .07) 3px 4px),
+    #fffdf5;
+  box-shadow: 9px 10px 0 rgba(58, 46, 40, .17);
+  z-index: 1;
+}
+.viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 2px solid var(--ink-soft);
+  border-radius: 2px;
+  background: #ece2cc var(--grain);
+  touch-action: none;
+}
+.viewport video, .viewport canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.viewport video.mirror { transform: scaleX(-1); }
+
+.placeholder {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  text-align: center;
+}
+.placeholder svg { width: min(34%, 150px); height: auto; }
+.placeholder p { font-size: 1.3rem; font-weight: 700; }
+.placeholder .note { font-family: var(--f-text); font-weight: 400; font-size: .86rem; color: var(--ink-soft); max-width: 28em; }
+.placeholder .note.warn { color: #a5341f; }
+
+.reticle {                       /* 색을 읽는 동그라미 */
+  position: absolute;
+  left: calc(var(--rx, .5) * 100%);
+  top: calc(var(--ry, .5) * 100%);
+  width: 14%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 3px dashed #fff;
+  box-shadow: 0 0 0 2px rgba(58, 46, 40, .75), inset 0 0 0 2px rgba(58, 46, 40, .75);
+  pointer-events: none;
+}
+.live-chip {
+  position: absolute;
+  left: 10px; bottom: 10px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 12px 4px 5px;
+  background: rgba(255, 250, 240, .93);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  font-size: 1rem; font-weight: 700;
+  pointer-events: none;
+}
+.live-chip i {
+  width: 30px; height: 30px;
+  border-radius: 58% 42% 55% 45% / 48% 58% 42% 52%;
+  border: 2px solid var(--ink);
+  background: var(--live);
+}
+.flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.flash.go { animation: flash .45s ease-out; }
+@keyframes flash { from { opacity: .9; } to { opacity: 0; } }
+
+.ledge { width: 106%; height: 20px; border-radius: 5px; margin-top: -3px; z-index: 2; box-shadow: 0 5px 0 rgba(58, 46, 40, .15); }
+.legs { position: relative; width: 74%; height: 44px; }
+.legs i { position: absolute; top: -3px; width: 24px; height: 52px; border-radius: 0 0 5px 5px; }
+.legs i:nth-child(1) { left: 6%; transform: rotate(9deg); }
+.legs i:nth-child(2) { left: calc(50% - 12px); height: 40px; }
+.legs i:nth-child(3) { right: 6%; transform: rotate(-9deg); }
+
+.controls { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: 12px; }
+
+/* ───────── 채점표(스케치북) ───────── */
+.result { transform: rotate(1.1deg); padding-top: 38px; }
+.result::before {                /* 스프링 */
+  content: '';
+  position: absolute;
+  left: 14px; right: 14px; top: -13px;
+  height: 26px;
+  background: radial-gradient(circle at 50% 50%, transparent 0 5px, var(--ink) 5.5px 8px, transparent 8.5px) center / 28px 26px repeat-x;
+}
+.whose { text-align: center; font-weight: 700; margin-top: 2px; }
+.empty-note { text-align: center; color: var(--ink-soft); padding: 14px 0 20px; }
+.empty-note svg { width: 110px; height: auto; display: block; margin: 0 auto 8px; }
+.scored { display: none; text-align: center; }
+.result[data-state="scored"] .scored { display: block; }
+.result[data-state="scored"] .empty-note { display: none; }
+
+.compare { width: 100%; max-width: 230px; height: auto; display: block; margin: 6px auto 0; }
+.compare text { font-family: var(--f-hand); font-weight: 700; font-size: 17px; fill: var(--ink); text-anchor: middle; }
+.score {
+  font-family: var(--f-brush);
+  font-size: clamp(4rem, 40cqi, 6.4rem);
+  line-height: .9;
+  position: relative;
+  display: inline-block;
+  padding: 0 .12em;
+}
+.score small { font-size: .42em; margin-left: .05em; }
+.score::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: .06em;
+  height: .16em;
+  background: var(--found);
+  border-radius: 70% 30% 60% 40% / 50% 60% 40% 50%;
+  z-index: -1;
+  filter: url(#rough);
+}
+.score.pop { animation: pop .5s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes pop { from { transform: scale(.5) rotate(-8deg); } to { transform: none; } }
+.comment { font-weight: 700; font-size: 1.25rem; margin-top: 6px; }
+
+.diff { width: 100%; border-collapse: collapse; margin: 12px 0 6px; font-variant-numeric: tabular-nums; }
+.diff th, .diff td { padding: 1px 4px; text-align: right; font-size: 1.05rem; }
+.diff thead th { font-family: var(--f-text); font-weight: 400; font-size: .74rem; color: var(--ink-soft); border-bottom: 2px dashed var(--ink-soft); }
+.diff tbody th { text-align: left; }
+.diff .dot { display: inline-block; width: .6em; height: .6em; border-radius: 50%; margin-right: .3em; border: 1.5px solid var(--ink); }
+.hint, .best-note { font-family: var(--f-text); font-size: .84rem; color: var(--ink-soft); margin-top: 6px; }
+.best-note { color: var(--ink); }
+.result .row { margin-top: 16px; }
+
+/* ───────── 팔레트 ───────── */
+.palette-wrap {
+  display: flex; flex-wrap: wrap;
+  align-items: center; justify-content: center;
+  gap: 8px 30px;
+  max-width: 980px;
+  margin: 30px auto 0;
+  padding: 0 20px;
+}
+.palette { flex: 1 1 420px; max-width: 640px; height: auto; display: block; }
+.palette text { font-family: var(--f-hand); font-weight: 700; fill: var(--ink); text-anchor: middle; }
+.palette .well-score { font-size: 25px; paint-order: stroke; stroke: rgba(255, 250, 240, .92); stroke-width: 5px; stroke-linejoin: round; }
+.palette .well-name { font-size: 21px; }
+.palette .well-star { font-size: 26px; fill: var(--yellow); paint-order: stroke; stroke: var(--ink); stroke-width: 3px; stroke-linejoin: round; }
+
+.total { flex: 0 1 310px; text-align: center; }
+.total .label { font-family: var(--f-brush); font-size: 2.2rem; line-height: 1; margin-bottom: 8px; }
+.board { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; text-align: left; }
+.board li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 14px 4px 10px;
+  border: 2.5px solid var(--ink);
+  border-radius: var(--wobble);
+  background: var(--paper-2);
+  transition: transform .15s, box-shadow .15s;
+}
+.board li.turn { background: #fff; box-shadow: 3px 4px 0 var(--ink); transform: translate(-3px, -1px) rotate(-.7deg); }
+.board .who { display: flex; align-items: center; gap: 6px; font-weight: 700; white-space: nowrap; }
+.board .who i { width: 18px; height: 17px; flex: none; background: var(--pc); border: 2px solid var(--ink); border-radius: 58% 42% 55% 45% / 48% 58% 42% 52%; }
+.board .lead { color: #d0921a; margin-left: 2px; }
+.board .dabs { display: flex; gap: 4px; justify-content: flex-end; }
+.board .dabs i { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1.5px solid var(--ink); }
+.board .dabs i.empty { border-style: dashed; border-color: rgba(58, 46, 40, .4); }
+.board .dabs i.win { box-shadow: 0 0 0 3px var(--yellow); }
+.board .pts { font-family: var(--f-brush); font-weight: 400; font-size: 2.2rem; line-height: .9; min-width: 1.5em; text-align: right; }
+.ranking li { grid-template-columns: auto auto 1fr auto; }
+.ranking .rank { font-weight: 700; color: var(--ink-soft); }
+
+/* ───────── 대화상자 ───────── */
+dialog {
+  font-family: var(--f-hand);
+  color: var(--ink);
+  background: var(--paper-2) var(--grain);
+  border: 2.5px solid var(--ink);
+  border-radius: 4px 10px 5px 12px / 11px 4px 12px 5px;
+  box-shadow: 8px 9px 0 rgba(58, 46, 40, .28);
+  padding: 26px 26px 22px;
+  width: min(92vw, 440px);
+}
+dialog::backdrop { background: rgba(58, 46, 40, .45); }
+dialog h2 { font-family: var(--f-brush); font-weight: 400; font-size: 2.6rem; line-height: 1; text-align: center; }
+dialog .sub { font-family: var(--f-text); font-size: .86rem; color: var(--ink-soft); text-align: center; margin: 6px 0 14px; }
+.mix-preview {
+  width: 120px; height: 104px; margin: 0 auto 6px;
+  border: 2.5px solid var(--ink);
+  border-radius: 58% 42% 55% 45% / 48% 58% 42% 52%;
+}
+.mix-code { text-align: center; font-weight: 700; font-size: 1.4rem; margin-bottom: 10px; }
+.mix-row { display: grid; grid-template-columns: 1.2em 1fr 4.2em; align-items: center; gap: 10px; margin: 8px 0; font-weight: 700; }
+.mix-row input[type=range] { width: 100%; }
+.mix-row.r input[type=range] { accent-color: #e0473a; }
+.mix-row.g input[type=range] { accent-color: #55a84a; }
+.mix-row.b input[type=range] { accent-color: #3f6fd0; }
+.mix-row input[type=number], .mix-hex input {
+  font: 700 1.05rem var(--f-hand);
+  color: var(--ink);
+  width: 100%;
+  padding: 2px 6px;
+  border: 2px solid var(--ink);
+  border-radius: 6px 3px 7px 3px;
+  background: #fff;
+}
+.mix-hex { display: grid; grid-template-columns: auto 8em; justify-content: center; align-items: center; gap: 10px; margin: 12px 0 18px; font-weight: 700; }
+
+.final-winner { font-family: var(--f-brush); font-size: 3.6rem; line-height: 1; text-align: center; color: var(--pc, var(--ink)); margin-top: 8px; }
+
+.field-label { font-family: var(--f-text); font-size: .8rem; color: var(--ink-soft); text-align: center; margin-top: 14px; }
+.seg { display: flex; justify-content: center; gap: 10px; margin: 8px 0 4px; }
+.seg label { position: relative; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span {
+  display: block;
+  font-weight: 700; font-size: 1.12rem;
+  padding: .22em .9em .3em;
+  border: 2.5px solid var(--ink);
+  border-radius: var(--wobble);
+  background: var(--paper-2);
+  cursor: pointer;
+}
+.seg input:checked + span { background: var(--yellow); box-shadow: 3px 4px 0 var(--ink); transform: translate(-1px, -2px); }
+.seg input:focus-visible + span { outline: 3px dashed var(--blue); outline-offset: 3px; }
+.name-row { display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: 10px; margin: 8px auto; max-width: 250px; }
+.name-row i { width: 24px; height: 22px; background: var(--pc); border: 2px solid var(--ink); border-radius: 58% 42% 55% 45% / 48% 58% 42% 52%; }
+.name-row input {
+  font: 700 1.1rem var(--f-hand);
+  color: var(--ink);
+  width: 100%;
+  padding: 3px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 6px 3px 7px 3px;
+  background: #fff;
+}
+
+/* ───────── 좁은 화면 ───────── */
+@media (max-width: 920px) {
+  .studio {
+    grid-template-columns: minmax(214px, 260px) minmax(0, 1fr);
+    grid-template-areas: "target easel" "result easel";
+    gap: 30px 30px;
+  }
+}
+@media (max-width: 700px) {
+  body { font-size: 18px; }
+  .studio { grid-template-columns: 1fr; grid-template-areas: "target" "easel" "result"; padding: 0 16px; }
+  .target, .result { transform: none; max-width: 420px; width: 100%; margin: 0 auto; }
+  .stroke { max-width: 260px; margin-inline: auto; }
+  .tags { margin-bottom: 22px; }
+  .ledge { width: 102%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- 손그림 느낌을 내는 SVG 필터 모음 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- 삐뚤빼뚤한 외곽선 -->
+    <filter id="rough" x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" seed="4" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="7" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <!-- 마른 붓 자국: 결 따라 번지고 군데군데 갈라짐 -->
+    <filter id="brush" x="-12%" y="-25%" width="124%" height="150%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.011 0.3" numOctaves="2" seed="11" result="streak"/>
+      <feDisplacementMap in="SourceGraphic" in2="streak" scale="16" xChannelSelector="R" yChannelSelector="G" result="moved"/>
+      <feColorMatrix in="streak" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 11 -6.7" result="gaps"/>
+      <feComposite in="moved" in2="gaps" operator="out"/>
+    </filter>
+  </defs>
+</svg>
+
+<header>
+  <div class="masthead">
+    <h1>색깔 사냥</h1>
+    <!-- 붓: 붓끝 색이 목표 색을 따라 바뀜 -->
+    <svg class="brush-art" viewBox="0 0 150 46" aria-hidden="true">
+      <g stroke="#3a2e28" stroke-width="2.5" stroke-linejoin="round">
+        <path d="M4 23 C 10 12, 26 13, 44 15 L 44 31 C 26 33, 10 34, 4 23 Z" style="fill:var(--target)"/>
+        <path d="M44 13 L 66 15 L 66 31 L 44 33 Z" fill="#c9c4bb"/>
+        <path d="M66 16 C 100 17, 130 20, 146 23 C 130 26, 100 29, 66 30 Z" fill="#d9a868"/>
+      </g>
+      <path d="M50 14 L50 32 M58 14.5 L58 31.5" stroke="#3a2e28" stroke-width="1.5"/>
+    </svg>
+  </div>
+  <p class="tagline">같은 물감 색을 보고, 차례대로 가장 닮은 물건을 찾아 캔버스에 담아요. 닮을수록 점수가 높아요.</p>
+  <div class="tags">
+    <div class="round-tag" id="roundTag">첫 번째 색</div>
+    <div class="turn-tag" id="turnTag" aria-live="polite">화가 1 차례</div>
+  </div>
+</header>
+
+<main class="studio">
+
+  <!-- 찾아야 할 색 -->
+  <section class="sheet target" aria-labelledby="targetTitle">
+    <h2 id="targetTitle">찾아야 할 색</h2>
+    <svg class="stroke" viewBox="0 0 300 150" role="img" aria-label="목표 색 붓자국">
+      <path d="M38 38 L262 34 L44 76 L258 78 L52 116 L226 114" filter="url(#brush)"/>
+    </svg>
+    <p class="code" id="targetCode">RGB(226, 85, 58)</p>
+    <p class="hex" id="targetHex">#E2553A</p>
+    <ul class="channels" aria-label="빨강, 초록, 파랑 값">
+      <li class="r"><span>R</span><span class="track"><span class="fill" id="barR"></span></span><span class="val" id="valR">0</span></li>
+      <li class="g"><span>G</span><span class="track"><span class="fill" id="barG"></span></span><span class="val" id="valG">0</span></li>
+      <li class="b"><span>B</span><span class="track"><span class="fill" id="barB"></span></span><span class="val" id="valB">0</span></li>
+    </ul>
+    <div class="row">
+      <button class="btn" id="rerollBtn" type="button">다른 색 뽑기</button>
+      <button class="btn" id="mixBtn" type="button">직접 정하기</button>
+    </div>
+  </section>
+
+  <!-- 이젤 + 캔버스(카메라) -->
+  <section class="easel" aria-label="카메라 캔버스">
+    <div class="mast wood"></div>
+    <div class="canvas">
+      <div class="viewport" id="viewport">
+        <video id="video" playsinline muted hidden></video>
+        <canvas id="shot" width="960" height="720" hidden></canvas>
+
+        <div class="placeholder" id="placeholder">
+          <svg viewBox="0 0 120 90" fill="none" stroke="#3a2e28" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 28 C12 22 16 20 22 20 L38 20 L46 9 L74 9 L82 20 L98 20 C104 20 108 22 108 28 L108 72 C108 78 104 80 98 80 L22 80 C16 80 12 78 12 72 Z" stroke-dasharray="1 0"/>
+            <circle cx="60" cy="50" r="19"/>
+            <circle cx="60" cy="50" r="9" stroke-dasharray="4 5"/>
+            <path d="M92 32 L98 32"/>
+          </svg>
+          <p id="placeholderTitle">물건을 찾았으면 카메라를 켜요</p>
+          <p class="note" id="placeholderNote">동그라미 안에 들어온 색을 읽어서 점수를 매겨요.</p>
+        </div>
+
+        <div class="reticle" id="reticle" hidden></div>
+        <div class="live-chip" id="liveChip" hidden><i></i><span>지금 색</span></div>
+        <div class="flash" id="flash"></div>
+      </div>
+    </div>
+    <div class="ledge wood"></div>
+    <div class="legs" aria-hidden="true"><i class="wood"></i><i class="wood"></i><i class="wood"></i></div>
+
+    <div class="controls">
+      <button class="btn primary shutter" id="mainBtn" type="button">카메라 켜기</button>
+      <div class="row">
+        <button class="btn" id="camBtn" type="button" hidden>카메라 바꾸기</button>
+        <button class="btn" id="uploadBtn" type="button">사진 올리기</button>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
+    </div>
+  </section>
+
+  <!-- 채점표 -->
+  <section class="sheet result" id="resultSheet" data-state="empty" aria-labelledby="resultTitle">
+    <h2 id="resultTitle">채점표</h2>
+    <p class="whose" id="whose"></p>
+
+    <div class="empty-note">
+      <svg viewBox="0 0 120 80" fill="none" stroke="#7d6c60" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="5 7" aria-hidden="true">
+        <circle cx="44" cy="40" r="28"/><circle cx="78" cy="40" r="28"/>
+      </svg>
+      <p>찰칵! 찍으면<br>여기에 점수가 나와요</p>
+    </div>
+
+    <div class="scored" aria-live="polite">
+      <svg class="compare" viewBox="0 0 240 150" role="img" aria-label="목표 색과 찾은 색 비교">
+        <g stroke="#3a2e28" stroke-width="2.5" filter="url(#rough)">
+          <circle cx="84" cy="62" r="52" style="fill:var(--target)"/>
+          <circle cx="156" cy="62" r="52" style="fill:var(--found)"/>
+        </g>
+        <text x="62" y="142">목표</text>
+        <text x="178" y="142">찾은 색</text>
+      </svg>
+      <p class="score" id="scoreBox"><span id="scoreNum">0</span><small>점</small></p>
+      <p class="comment" id="comment"></p>
+      <table class="diff">
+        <thead><tr><th></th><th>목표</th><th>찾은 색</th><th>차이</th></tr></thead>
+        <tbody id="diffBody"></tbody>
+      </table>
+      <p class="hint" id="hint"></p>
+      <p class="best-note" id="bestNote"></p>
+    </div>
+
+    <div class="row">
+      <button class="btn sun" id="nextBtn" type="button" disabled>다음 선수 →</button>
+    </div>
+  </section>
+</main>
+
+<!-- 팔레트: 이번 색에서 선수들이 찾아온 색이 한 칸씩 채워짐 / 점수판: 모은 점수 -->
+<section class="palette-wrap" aria-label="팔레트와 점수판">
+  <svg class="palette" viewBox="0 0 720 244" role="img" aria-label="이번 색에서 선수들이 찾은 색과 점수">
+    <g filter="url(#rough)">
+      <path d="M70 128 C52 52 190 16 372 18 C560 20 700 62 690 138 C682 200 598 226 520 208 C478 198 470 168 428 172 C384 176 392 224 300 226 C180 228 84 196 70 128 Z"
+            fill="#d9a868" stroke="#3a2e28" stroke-width="3.5"/>
+      <g fill="none" stroke="#a9763f" stroke-width="2" opacity=".5" stroke-linecap="round">
+        <path d="M110 96 C220 40 480 34 640 96"/>
+        <path d="M100 150 C150 190 260 206 330 196"/>
+        <path d="M470 150 C540 190 630 190 664 150"/>
+        <path d="M250 150 C330 130 420 132 520 150"/>
+      </g>
+      <ellipse cx="150" cy="158" rx="34" ry="23" transform="rotate(-16 150 158)" fill="#f6eedd" stroke="#3a2e28" stroke-width="3.5"/>
+    </g>
+    <g id="wells"></g>
+  </svg>
+  <div class="total">
+    <p class="label">점수판</p>
+    <ol class="board" id="board"></ol>
+    <button class="btn" id="restartBtn" type="button">새 대결</button>
+  </div>
+</section>
+
+<!-- 색 직접 정하기 -->
+<dialog id="mixDialog" aria-labelledby="mixTitle">
+  <form method="dialog" id="mixForm">
+    <h2 id="mixTitle">물감 섞기</h2>
+    <p class="sub">빨강·초록·파랑을 0부터 255까지 섞어 찾을 색을 정해요.</p>
+    <div class="mix-preview" id="mixPreview"></div>
+    <p class="mix-code" id="mixCode">RGB(0, 0, 0)</p>
+    <label class="mix-row r"><span>R</span><input type="range" min="0" max="255" id="mixR"><input type="number" min="0" max="255" id="mixRn" aria-label="빨강 값"></label>
+    <label class="mix-row g"><span>G</span><input type="range" min="0" max="255" id="mixG"><input type="number" min="0" max="255" id="mixGn" aria-label="초록 값"></label>
+    <label class="mix-row b"><span>B</span><input type="range" min="0" max="255" id="mixB"><input type="number" min="0" max="255" id="mixBn" aria-label="파랑 값"></label>
+    <label class="mix-hex"><span>색 코드</span><input type="text" id="mixHex" maxlength="7" spellcheck="false" autocomplete="off"></label>
+    <div class="row">
+      <button class="btn" type="button" id="mixCancel">그만두기</button>
+      <button class="btn primary" type="submit">이 색으로 사냥!</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 결과 발표 -->
+<dialog id="finalDialog" aria-labelledby="finalTitle">
+  <h2 id="finalTitle">대결 끝!</h2>
+  <p class="final-winner" id="finalWinner"></p>
+  <p class="sub" id="finalTitleLine"></p>
+  <ol class="board ranking" id="ranking"></ol>
+  <div class="row">
+    <button class="btn" type="button" id="finalSetup">선수 바꾸기</button>
+    <button class="btn primary" type="button" id="finalAgain">한 판 더!</button>
+  </div>
+</dialog>
+
+<!-- 선수 정하기 -->
+<dialog id="setupDialog" aria-labelledby="setupTitle">
+  <form method="dialog" id="setupForm">
+    <h2 id="setupTitle">색깔 대결</h2>
+    <p class="sub">같은 색을 보고 차례대로 닮은 물건을 찾아 찍어요. 한 차례에 딱 한 번만 찍을 수 있고, 점수를 가장 많이 모은 화가가 이겨요.</p>
+
+    <p class="field-label">몇 명이 겨루나요?</p>
+    <div class="seg" role="group" aria-label="선수 수">
+      <label><input type="radio" name="count" value="2" checked><span>2명</span></label>
+      <label><input type="radio" name="count" value="3"><span>3명</span></label>
+      <label><input type="radio" name="count" value="4"><span>4명</span></label>
+    </div>
+
+    <p class="field-label">화가 이름 (다섯 글자까지)</p>
+    <label class="name-row" style="--pc:#e2553a"><i></i><input type="text" maxlength="5" placeholder="화가 1" aria-label="첫 번째 화가 이름" autocomplete="off"></label>
+    <label class="name-row" style="--pc:#3f5fae"><i></i><input type="text" maxlength="5" placeholder="화가 2" aria-label="두 번째 화가 이름" autocomplete="off"></label>
+    <label class="name-row" style="--pc:#5d8f3f"><i></i><input type="text" maxlength="5" placeholder="화가 3" aria-label="세 번째 화가 이름" autocomplete="off"></label>
+    <label class="name-row" style="--pc:#8a5aa8"><i></i><input type="text" maxlength="5" placeholder="화가 4" aria-label="네 번째 화가 이름" autocomplete="off"></label>
+
+    <p class="field-label">몇 가지 색으로 겨루나요?</p>
+    <div class="seg" role="group" aria-label="색 개수">
+      <label><input type="radio" name="rounds" value="3"><span>3가지</span></label>
+      <label><input type="radio" name="rounds" value="5" checked><span>5가지</span></label>
+    </div>
+
+    <div class="row" style="margin-top:18px">
+      <button class="btn primary" type="submit">대결 시작!</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+'use strict';
+
+/* ══════════════ 1. 색 계산 ══════════════ */
+
+// sRGB(0~255) → 빛의 세기(0~1). 평균을 내거나 Lab으로 바꿀 때 쓴다.
+const LIN = Float32Array.from({ length: 256 }, (_, i) => {
+  const c = i / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+});
+const toSrgb = l => Math.round(255 * (l <= 0.0031308 ? l * 12.92 : 1.055 * l ** (1 / 2.4) - 0.055));
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const css = c => `rgb(${c.r}, ${c.g}, ${c.b})`;
+const codeText = c => `RGB(${c.r}, ${c.g}, ${c.b})`;
+const hexText = c => '#' + [c.r, c.g, c.b].map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
+
+function hsvToRgb(h, s, v) {
+  const f = n => {
+    const k = (n + h / 60) % 6;
+    return Math.round(255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1))));
+  };
+  return { r: f(5), g: f(3), b: f(1) };
+}
+
+// RGB → CIELAB (사람 눈이 느끼는 색 차이에 가까운 색 공간)
+function rgb2lab({ r, g, b }) {
+  const R = LIN[r], G = LIN[g], B = LIN[b];
+  const X = (0.4124564 * R + 0.3575761 * G + 0.1804375 * B) / 0.95047;
+  const Y = (0.2126729 * R + 0.7151522 * G + 0.0721750 * B);
+  const Z = (0.0193339 * R + 0.1191920 * G + 0.9503041 * B) / 1.08883;
+  const f = t => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+  return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
+}
+
+// CIEDE2000 색차: 0이면 같은 색, 2 이하는 눈으로 구분하기 어렵고, 50쯤이면 전혀 다른 색
+function deltaE00([L1, a1, b1], [L2, a2, b2]) {
+  const rad = Math.PI / 180, deg = 180 / Math.PI, p7 = 25 ** 7;
+  const Cb = (Math.hypot(a1, b1) + Math.hypot(a2, b2)) / 2;
+  const G = 0.5 * (1 - Math.sqrt(Cb ** 7 / (Cb ** 7 + p7)));
+  const a1p = a1 * (1 + G), a2p = a2 * (1 + G);
+  const C1 = Math.hypot(a1p, b1), C2 = Math.hypot(a2p, b2);
+  const h1 = (Math.atan2(b1, a1p) * deg + 360) % 360;
+  const h2 = (Math.atan2(b2, a2p) * deg + 360) % 360;
+
+  const dL = L2 - L1, dC = C2 - C1;
+  let dh = 0, hb = h1 + h2;
+  if (C1 * C2 !== 0) {
+    dh = h2 - h1;
+    if (dh > 180) dh -= 360; else if (dh < -180) dh += 360;
+    if (Math.abs(h1 - h2) <= 180) hb = (h1 + h2) / 2;
+    else hb = (h1 + h2 < 360) ? (h1 + h2 + 360) / 2 : (h1 + h2 - 360) / 2;
+  }
+  const dH = 2 * Math.sqrt(C1 * C2) * Math.sin(dh / 2 * rad);
+  const Lb = (L1 + L2) / 2, Cbp = (C1 + C2) / 2;
+
+  const T = 1 - 0.17 * Math.cos((hb - 30) * rad) + 0.24 * Math.cos(2 * hb * rad)
+              + 0.32 * Math.cos((3 * hb + 6) * rad) - 0.20 * Math.cos((4 * hb - 63) * rad);
+  const dTheta = 30 * Math.exp(-(((hb - 275) / 25) ** 2));
+  const Rc = 2 * Math.sqrt(Cbp ** 7 / (Cbp ** 7 + p7));
+  const Sl = 1 + 0.015 * (Lb - 50) ** 2 / Math.sqrt(20 + (Lb - 50) ** 2);
+  const Sc = 1 + 0.045 * Cbp, Sh = 1 + 0.015 * Cbp * T;
+  const Rt = -Math.sin(2 * dTheta * rad) * Rc;
+  return Math.sqrt((dL / Sl) ** 2 + (dC / Sc) ** 2 + (dH / Sh) ** 2 + Rt * (dC / Sc) * (dH / Sh));
+}
+
+// 색차 → 점수. 색차 2 이하는 100점, 50 이상은 0점.
+// 1.3제곱을 해서 높은 점수대일수록 조금만 달라도 점수가 빨리 깎인다. (색차 10 → 79점, 25 → 43점)
+function scoreFromDeltaE(dE) {
+  return Math.round(100 * clamp(1 - (dE - 2) / 48, 0, 1) ** 1.3);
+}
+function scoreColors(target, found) {
+  return scoreFromDeltaE(deltaE00(rgb2lab(target), rgb2lab(found)));
+}
+
+// 캔버스에서 동그라미 안 픽셀의 평균 색을 구한다.
+function sampleCircle(ctx, cx, cy, radius) {
+  const x0 = Math.max(0, Math.floor(cx - radius)), y0 = Math.max(0, Math.floor(cy - radius));
+  const x1 = Math.min(ctx.canvas.width, Math.ceil(cx + radius)), y1 = Math.min(ctx.canvas.height, Math.ceil(cy + radius));
+  const w = x1 - x0, h = y1 - y0;
+  if (w <= 0 || h <= 0) return { r: 0, g: 0, b: 0 };
+  const d = ctx.getImageData(x0, y0, w, h).data;
+  let R = 0, G = 0, B = 0, n = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dx = x0 + x + 0.5 - cx, dy = y0 + y + 0.5 - cy;
+      if (dx * dx + dy * dy > radius * radius) continue;
+      const i = (y * w + x) * 4;
+      R += LIN[d[i]]; G += LIN[d[i + 1]]; B += LIN[d[i + 2]]; n++;
+    }
+  }
+  if (!n) return { r: 0, g: 0, b: 0 };
+  return { r: toSrgb(R / n), g: toSrgb(G / n), b: toSrgb(B / n) };
+}
+
+/* ══════════════ 2. 게임 상태 ══════════════ */
+
+const SHOT_W = 960, SHOT_H = 720;   // 찍은 사진을 담는 캔버스 크기 (4:3)
+const SAMPLE_R = 0.07;              // 색을 읽는 동그라미 반지름 (가로 길이에 대한 비율)
+const ORDINAL = ['첫', '두', '세', '네', '다섯'];
+const PLAYER_COLORS = ['#e2553a', '#3f5fae', '#5d8f3f', '#8a5aa8'];   // 선수마다 붓 색
+
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+const root = document.documentElement;
+const video = $('video'), shot = $('shot'), viewport = $('viewport');
+const shotCtx = shot.getContext('2d', { willReadFrequently: true });
+const tiny = document.createElement('canvas');
+tiny.width = tiny.height = 32;
+const tinyCtx = tiny.getContext('2d', { willReadFrequently: true });
+
+const state = {
+  players: [],          // { name, color }
+  rounds: 5,            // 겨룰 색의 개수
+  round: 0,             // 지금 몇 번째 색인지 (0부터)
+  turn: 0,              // 이번 색에서 몇 번째 차례인지 (0부터)
+  targets: [],
+  shots: [],            // shots[색 번호][선수 번호] = { found, score }
+  last: null,           // 방금 찍은 결과
+  done: false,          // 지금 차례인 선수가 이미 찍었는지 (한 차례에 한 번만 찍는다)
+  doneAt: 0,
+  mode: 'idle',         // idle(카메라 꺼짐) | live(비추는 중) | frozen(찍은 뒤) | photo(올린 사진)
+  stream: null,
+  facing: 'environment',
+  mirrored: false,
+  reticle: { x: 0.5, y: 0.5 },
+};
+
+// 색이 바뀔 때마다 먼저 하는 선수를 한 칸씩 돌린다. (늘 같은 사람이 먼저 하면 불공평하니까)
+const currentPlayer = () => (state.round + state.turn) % state.players.length;
+const totalOf = p => state.shots.reduce((sum, row) => sum + (row[p] ? row[p].score : 0), 0);
+const roundStarted = () => state.shots[state.round].some(Boolean);
+const roundComplete = (r = state.round) => state.shots[r].every(Boolean);
+const gameOver = () => state.round === state.rounds - 1 && roundComplete();
+
+// 그 색에서 가장 높은 점수를 받은 선수들 (동점이면 여러 명, 아직 덜 찍었으면 빈 배열)
+function roundWinners(r) {
+  const row = state.shots[r];
+  if (!row.every(Boolean)) return [];
+  const top = Math.max(...row.map(s => s.score));
+  return row.flatMap((s, p) => s.score === top ? [p] : []);
+}
+
+function randomTarget(hue = Math.random() * 360) {
+  return hsvToRgb(hue, 0.3 + Math.random() * 0.6, 0.45 + Math.random() * 0.5);
+}
+// 색상이 골고루 퍼지도록 n개의 색을 뽑는다.
+function makeTargets(n) {
+  const start = Math.random() * 360;
+  const hues = Array.from({ length: n }, (_, i) => (start + i * 360 / n + (Math.random() - 0.5) * 40 + 360) % 360);
+  for (let i = hues.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [hues[i], hues[j]] = [hues[j], hues[i]];
+  }
+  return hues.map(h => randomTarget(h));
+}
+
+function newGame(players = state.players, rounds = state.rounds) {
+  state.players = players;
+  state.rounds = rounds;
+  state.round = 0;
+  state.turn = 0;
+  state.targets = makeTargets(rounds);
+  state.shots = Array.from({ length: rounds }, () => Array(players.length).fill(null));
+  state.last = null;
+  state.done = false;
+  if (state.mode === 'frozen' || state.mode === 'photo') setMode(state.stream ? 'live' : 'idle');
+  renderAll();
+}
+
+// 목표 색 바꾸기는 이번 색에서 아무도 찍기 전에만 할 수 있다.
+function setTarget(color) {
+  if (roundStarted()) return;
+  state.targets[state.round] = color;
+  renderAll();
+}
+
+/* ══════════════ 3. 화면 그리기 ══════════════ */
+
+function renderTarget() {
+  const t = state.targets[state.round];
+  root.style.setProperty('--target', css(t));
+  $('targetCode').textContent = codeText(t);
+  $('targetHex').textContent = hexText(t);
+  for (const [k, v] of [['R', t.r], ['G', t.g], ['B', t.b]]) {
+    $('bar' + k).style.width = (v / 255 * 100) + '%';
+    $('val' + k).textContent = v;
+  }
+  $('rerollBtn').disabled = $('mixBtn').disabled = roundStarted();
+  $('roundTag').textContent = `${ORDINAL[state.round]} 번째 색 · ${state.round + 1} / ${state.rounds}`;
+
+  const tag = $('turnTag');
+  if (roundComplete()) {
+    const winners = roundWinners(state.round);
+    tag.textContent = winnersText(winners);
+    tag.style.setProperty('--pc', winners.length === 1 ? state.players[winners[0]].color : 'var(--ink)');
+  } else {
+    const p = state.players[currentPlayer()];
+    tag.textContent = `${p.name} 차례`;
+    tag.style.setProperty('--pc', p.color);
+  }
+}
+function winnersText(winners) {
+  if (winners.length === state.players.length) return '이번 색은 모두 동점!';
+  return `이번 색은 ${winners.map(p => state.players[p].name).join('·')} 승리!`;
+}
+function popTurnTag() {
+  const tag = $('turnTag');
+  tag.classList.remove('pop'); void tag.offsetWidth; tag.classList.add('pop');
+}
+
+// 팔레트: 이번 색에서 선수들이 찾아온 색이 한 칸씩 채워진다.
+const WELLS = {
+  2: [[330, 78], [540, 88]],
+  3: [[252, 90], [420, 70], [590, 104]],
+  4: [[246, 94], [374, 72], [502, 74], [628, 112]],
+};
+function renderPalette() {
+  const cur = currentPlayer(), row = state.shots[state.round], winners = roundWinners(state.round);
+  $('wells').innerHTML = WELLS[state.players.length].map(([x, y], p) => {
+    const s = row[p], pl = state.players[p];
+    const ring = p === cur && !roundComplete()
+      ? `<circle cx="${x}" cy="${y}" r="38" fill="none" stroke="#3a2e28" stroke-width="2.5" stroke-dasharray="3 7" stroke-linecap="round"/>` : '';
+    const blob = s
+      ? `<circle cx="${x}" cy="${y}" r="30" fill="${css(s.found)}" stroke="#3a2e28" stroke-width="2.5" filter="url(#rough)"/>
+         <ellipse cx="${x - 12}" cy="${y - 15}" rx="8" ry="4.5" fill="#fff" opacity=".35" transform="rotate(-30 ${x - 12} ${y - 15})"/>
+         <text class="well-score" x="${x}" y="${y + 9}">${s.score}</text>`
+      : `<circle cx="${x}" cy="${y}" r="29" fill="rgba(255,250,240,.35)" stroke="rgba(58,46,40,.55)" stroke-width="2.5" stroke-dasharray="7 6"/>`;
+    const star = winners.includes(p) ? `<text class="well-star" x="${x + 27}" y="${y - 18}">★</text>` : '';
+    return `<g>${ring}${blob}${star}
+      <text class="well-name" x="${x}" y="${y + 56}">${esc(pl.name)}</text>
+      <path d="M${x - 20} ${y + 64} h40" stroke="${pl.color}" stroke-width="5" stroke-linecap="round"/></g>`;
+  }).join('');
+  renderBoard();
+}
+
+// 선수 한 명의 색 기록(색마다 동그라미 하나, 그 색에서 이겼으면 노란 테두리)
+function dabsHtml(p) {
+  return state.shots.map((row, r) => {
+    const s = row[p];
+    if (!s) return '<i class="empty"></i>';
+    return `<i class="${roundWinners(r).includes(p) ? 'win' : ''}" style="background:${css(s.found)}" title="${s.score}점"></i>`;
+  }).join('');
+}
+function renderBoard() {
+  const totals = state.players.map((_, p) => totalOf(p));
+  const top = Math.max(...totals), cur = currentPlayer();
+  $('board').innerHTML = state.players.map((pl, p) => `
+    <li class="${p === cur && !roundComplete() ? 'turn' : ''}" style="--pc:${pl.color}">
+      <span class="who"><i></i>${esc(pl.name)}${top > 0 && totals[p] === top ? '<b class="lead" title="선두">★</b>' : ''}</span>
+      <span class="dabs">${dabsHtml(p)}</span>
+      <b class="pts">${totals[p]}</b>
+    </li>`).join('');
+}
+
+const CHANNELS = [['R', 'r', '빨강', '#e0473a', '붉은'], ['G', 'g', '초록', '#55a84a', '푸릇한'], ['B', 'b', '파랑', '#3f6fd0', '푸른']];
+
+function commentFor(score) {
+  if (score >= 95) return '완벽해요! 화가의 눈이네요';
+  if (score >= 85) return '거의 똑같아요! 멋진 발견';
+  if (score >= 70) return '꽤 닮았어요!';
+  if (score >= 50) return '닮은 구석이 있어요';
+  if (score >= 30) return '음… 조금 다른 색이에요';
+  return '전혀 다른 색이에요';
+}
+function hintFor(target, found, score) {
+  let top = null;
+  for (const [, k, name, , adj] of CHANNELS) {
+    const d = found[k] - target[k];
+    if (!top || Math.abs(d) > Math.abs(top.d)) top = { d, name, adj };
+  }
+  if (score >= 95 || Math.abs(top.d) < 12) return '세 가지 물감이 모두 거의 맞았어요.';
+  // 세 값이 한꺼번에 많거나 모자라면 색보다 밝기가 다른 것
+  const diffs = CHANNELS.map(([, k]) => found[k] - target[k]);
+  if (diffs.every(d => d <= -25)) return '세 물감이 모두 모자라요. 더 밝은 물건이면 좋았겠어요.';
+  if (diffs.every(d => d >= 25)) return '세 물감이 모두 많아요. 더 어두운 물건이면 좋았겠어요.';
+  return top.d > 0
+    ? `${top.name}이 ${top.d}만큼 많아요. 덜 ${top.adj} 물건이면 좋았겠어요.`
+    : `${top.name}이 ${-top.d}만큼 모자라요. 더 ${top.adj} 물건이면 좋았겠어요.`;
+}
+
+// 찍은 뒤 누르는 버튼에 쓸 글자
+function advanceLabel() {
+  if (!roundComplete()) return '다음 선수 →';
+  return state.round === state.rounds - 1 ? '결과 발표 →' : '다음 색 →';
+}
+
+function renderResult(animate = false) {
+  const sheet = $('resultSheet'), last = state.last;
+  $('nextBtn').disabled = !state.done;
+  $('nextBtn').textContent = advanceLabel();
+  if (!last) {
+    sheet.dataset.state = 'empty';
+    $('whose').textContent = `${state.players[currentPlayer()].name}의 차례예요`;
+    return;
+  }
+
+  const target = state.targets[state.round];
+  sheet.dataset.state = 'scored';
+  root.style.setProperty('--found', css(last.found));
+  $('whose').textContent = `${state.players[last.player].name}의 점수`;
+  $('comment').textContent = commentFor(last.score);
+  $('diffBody').innerHTML = CHANNELS.map(([label, k, , color]) => {
+    const d = last.found[k] - target[k];
+    return `<tr><th><span class="dot" style="background:${color}"></span>${label}</th><td>${target[k]}</td><td>${last.found[k]}</td><td>${d > 0 ? '+' : d < 0 ? '−' : ''}${Math.abs(d)}</td></tr>`;
+  }).join('');
+  $('hint').textContent = hintFor(target, last.found, last.score);
+  $('bestNote').textContent = roundComplete() ? winnersText(roundWinners(state.round)) : '';
+  countUp($('scoreNum'), last.score, animate);
+  if (animate) {
+    const box = $('scoreBox');
+    box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
+  }
+}
+
+function countUp(el, to, animate) {
+  const still = !animate || matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (still) { el.textContent = to; return; }
+  const t0 = performance.now(), dur = 700;
+  const tick = now => {
+    const p = clamp((now - t0) / dur, 0, 1);
+    el.textContent = Math.round(to * (1 - (1 - p) ** 3));
+    if (p < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function renderControls() {
+  const m = state.mode, done = state.done, main = $('mainBtn');
+  // 찍기 전에는 빨간 셔터, 찍은 뒤에는 차례를 넘기는 노란 버튼
+  main.textContent = done ? advanceLabel() : { idle: '카메라 켜기', live: '찰칵!', frozen: '찰칵!', photo: '이 색으로 채점!' }[m];
+  main.classList.toggle('primary', !done);
+  main.classList.toggle('sun', done);
+  video.hidden = m !== 'live';
+  shot.hidden = !(m === 'frozen' || m === 'photo');
+  $('placeholder').hidden = m !== 'idle';
+  $('reticle').hidden = m === 'idle';
+  $('liveChip').hidden = !(m === 'live' || (m === 'photo' && !done));
+  $('camBtn').hidden = m === 'idle';
+  $('camBtn').textContent = m === 'photo' ? '카메라로 찍기' : '카메라 바꾸기';
+  $('camBtn').disabled = $('uploadBtn').disabled = done;
+  viewport.style.cursor = m === 'photo' && !done ? 'crosshair' : '';
+  viewport.style.setProperty('--rx', state.reticle.x);
+  viewport.style.setProperty('--ry', state.reticle.y);
+}
+
+function renderAll(animate = false) { renderTarget(); renderResult(animate); renderPalette(); renderControls(); }
+
+function setMode(mode) {
+  state.mode = mode;
+  if (mode !== 'photo') state.reticle = { x: 0.5, y: 0.5 };
+  renderControls();
+  if (mode === 'live') liveLoop();
+}
+
+/* ══════════════ 4. 카메라 ══════════════ */
+
+function stopCamera() {
+  if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+  state.stream = null;
+  video.srcObject = null;
+}
+
+async function startCamera() {
+  stopCamera();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return cameraFail('이 주소에서는 카메라를 켤 수 없어요. (https 또는 localhost 주소가 필요해요.) 아래 ‘사진 올리기’를 써 보세요.');
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: state.facing }, width: { ideal: 1280 }, height: { ideal: 960 } },
+    });
+    state.stream = stream;
+    video.srcObject = stream;
+    await video.play();
+    // 셀카 방향 카메라(또는 방향 정보가 없는 노트북 웹캠)는 거울처럼 뒤집어 보여 준다.
+    const facing = stream.getVideoTracks()[0].getSettings().facingMode;
+    state.mirrored = facing ? facing === 'user' : true;
+    video.classList.toggle('mirror', state.mirrored);
+    setMode('live');
+  } catch (err) {
+    stopCamera();
+    const msg = err.name === 'NotAllowedError' ? '카메라 사용이 허락되지 않았어요. 브라우저 주소창에서 카메라를 허용하거나, 아래 ‘사진 올리기’를 써 보세요.'
+      : err.name === 'NotFoundError' || err.name === 'OverconstrainedError' ? '카메라를 찾지 못했어요. 아래 ‘사진 올리기’를 써 보세요.'
+      : '카메라를 켜지 못했어요. 다른 앱이 카메라를 쓰고 있는지 확인하거나, ‘사진 올리기’를 써 보세요.';
+    cameraFail(msg);
+  }
+}
+
+function cameraFail(message) {
+  setMode('idle');
+  $('placeholderTitle').textContent = '카메라가 켜지지 않았어요';
+  const note = $('placeholderNote');
+  note.textContent = message;
+  note.classList.add('warn');
+}
+
+// 사진·영상을 4:3 캔버스에 꽉 채워(넘치는 부분은 잘라) 그린다.
+function drawCover(source, sw, sh, mirror) {
+  const scale = Math.max(SHOT_W / sw, SHOT_H / sh);
+  const dw = sw * scale, dh = sh * scale;
+  shotCtx.save();
+  if (mirror) { shotCtx.translate(SHOT_W, 0); shotCtx.scale(-1, 1); }
+  shotCtx.drawImage(source, (SHOT_W - dw) / 2, (SHOT_H - dh) / 2, dw, dh);
+  shotCtx.restore();
+}
+
+// 켜진 카메라 화면 한가운데 동그라미의 평균 색
+function sampleLive() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return null;
+  const visibleW = vw / vh > 4 / 3 ? vh * 4 / 3 : vw;
+  const r = visibleW * SAMPLE_R;
+  tinyCtx.drawImage(video, vw / 2 - r, vh / 2 - r, 2 * r, 2 * r, 0, 0, tiny.width, tiny.height);
+  return sampleCircle(tinyCtx, tiny.width / 2, tiny.height / 2, tiny.width / 2);
+}
+const sampleShot = () => sampleCircle(shotCtx, state.reticle.x * SHOT_W, state.reticle.y * SHOT_H, SHOT_W * SAMPLE_R);
+
+let liveTimer = 0;
+function liveLoop() {
+  clearTimeout(liveTimer);
+  if (state.mode !== 'live') return;
+  const c = sampleLive();
+  if (c) root.style.setProperty('--live', css(c));
+  liveTimer = setTimeout(liveLoop, 120);
+}
+
+/* ══════════════ 5. 찍고 채점하기 ══════════════ */
+
+// 지금 차례인 선수의 점수를 매기고 기록한다. 한 차례에 한 번뿐!
+function judge() {
+  if (state.done) return;
+  const found = sampleShot(), player = currentPlayer();
+  const score = scoreColors(state.targets[state.round], found);
+  state.last = { found, score, player };
+  state.shots[state.round][player] = { found, score };
+  state.done = true;
+  state.doneAt = performance.now();
+  renderAll(true);
+  if (roundComplete()) popTurnTag();
+
+  // 채점표가 화면 밖에 있으면 보이는 곳으로 옮겨 준다.
+  const box = $('resultSheet').getBoundingClientRect();
+  if (box.top < 0 || box.top > innerHeight - 220) {
+    const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    $('resultSheet').scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' });
+  }
+}
+
+function shoot() {
+  if (state.done || !video.videoWidth) return;
+  drawCover(video, video.videoWidth, video.videoHeight, state.mirrored);
+  const flash = $('flash');
+  flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
+  setMode('frozen');
+  judge();
+}
+
+function loadPhoto(file) {
+  if (state.done) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    drawCover(img, img.naturalWidth, img.naturalHeight, false);
+    URL.revokeObjectURL(url);
+    state.reticle = { x: 0.5, y: 0.5 };
+    setMode('photo');
+    root.style.setProperty('--live', css(sampleShot()));
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); alert('사진을 열지 못했어요. 다른 사진으로 해 볼까요?'); };
+  img.src = url;
+}
+
+// 올린 사진에서는 채점하기 전까지 동그라미를 눌러서 옮길 수 있다.
+function moveReticle(ev) {
+  const box = viewport.getBoundingClientRect();
+  const ry = SAMPLE_R * SHOT_W / SHOT_H;
+  state.reticle = {
+    x: clamp((ev.clientX - box.left) / box.width, SAMPLE_R, 1 - SAMPLE_R),
+    y: clamp((ev.clientY - box.top) / box.height, ry, 1 - ry),
+  };
+  viewport.style.setProperty('--rx', state.reticle.x);
+  viewport.style.setProperty('--ry', state.reticle.y);
+  root.style.setProperty('--live', css(sampleShot()));
+}
+
+/* ══════════════ 6. 차례 넘기기 · 결과 발표 ══════════════ */
+
+function advance() {
+  if (!state.done) return;
+  if (gameOver()) return showFinal();
+  if (roundComplete()) { state.round++; state.turn = 0; }   // 모두 찍었으면 다음 색으로
+  else state.turn++;                                        // 아니면 다음 선수에게
+  state.done = false;
+  state.last = null;
+  setMode(state.stream ? 'live' : 'idle');
+  renderAll();
+  popTurnTag();
+  if (matchMedia('(max-width: 700px)').matches) window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function rankFor(average) {
+  if (average >= 90) return '색채의 마법사';
+  if (average >= 76) return '명화 속 화가';
+  if (average >= 60) return '솜씨 좋은 화가';
+  if (average >= 40) return '꿈나무 화가';
+  return '새내기 화가';
+}
+
+function showFinal() {
+  const ranked = state.players
+    .map((pl, p) => ({ pl, p, total: totalOf(p) }))
+    .sort((a, b) => b.total - a.total);
+  const top = ranked[0].total;
+  const champs = ranked.filter(r => r.total === top);
+
+  const winner = $('finalWinner');
+  winner.textContent = champs.length === ranked.length ? '모두 동점, 무승부!'
+    : `${champs.map(c => c.pl.name).join('·')} ${champs.length > 1 ? '공동 우승!' : '우승!'}`;
+  winner.style.setProperty('--pc', champs.length === 1 ? champs[0].pl.color : 'var(--ink)');
+  $('finalTitleLine').textContent = `${top}점 · ‘${rankFor(top / state.rounds)}’의 솜씨예요`;
+
+  $('ranking').innerHTML = ranked.map(r => {
+    const rank = ranked.findIndex(o => o.total === r.total) + 1;   // 동점이면 같은 등수
+    return `<li style="--pc:${r.pl.color}">
+      <span class="rank">${rank}등</span>
+      <span class="who"><i></i>${esc(r.pl.name)}</span>
+      <span class="dabs">${dabsHtml(r.p)}</span>
+      <b class="pts">${r.total}</b></li>`;
+  }).join('');
+  $('finalDialog').showModal();
+}
+
+/* ══════════════ 7. 선수 정하기 · 색 직접 정하기 ══════════════ */
+
+const setupForm = $('setupForm');
+const nameRows = [...document.querySelectorAll('.name-row')];
+function syncNameRows() {
+  const n = Number(setupForm.elements.count.value);
+  nameRows.forEach((row, i) => { row.hidden = i >= n; });
+}
+setupForm.addEventListener('change', syncNameRows);
+setupForm.addEventListener('submit', () => {
+  const n = Number(setupForm.elements.count.value);
+  const players = nameRows.slice(0, n).map((row, i) => ({
+    name: row.querySelector('input').value.trim() || `화가 ${i + 1}`,
+    color: PLAYER_COLORS[i],
+  }));
+  newGame(players, Number(setupForm.elements.rounds.value));
+  popTurnTag();
+});
+function openSetup() {
+  syncNameRows();
+  $('setupDialog').showModal();
+}
+
+const mix = { r: 0, g: 0, b: 0 };
+function renderMix(skip) {
+  const c = mix;
+  $('mixPreview').style.background = css(c);
+  $('mixCode').textContent = codeText(c);
+  for (const k of ['R', 'G', 'B']) {
+    const v = c[k.toLowerCase()];
+    if (skip !== $('mix' + k)) $('mix' + k).value = v;
+    if (skip !== $('mix' + k + 'n')) $('mix' + k + 'n').value = v;
+  }
+  if (skip !== $('mixHex')) $('mixHex').value = hexText(c);
+}
+for (const k of ['R', 'G', 'B']) {
+  for (const id of ['mix' + k, 'mix' + k + 'n']) {
+    $(id).addEventListener('input', ev => {
+      const v = parseInt(ev.target.value, 10);
+      mix[k.toLowerCase()] = Number.isFinite(v) ? clamp(v, 0, 255) : 0;
+      renderMix(ev.target);
+    });
+  }
+}
+$('mixHex').addEventListener('input', ev => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(ev.target.value.trim());
+  if (!m) return;
+  const n = parseInt(m[1], 16);
+  Object.assign(mix, { r: n >> 16, g: (n >> 8) & 255, b: n & 255 });
+  renderMix(ev.target);
+});
+$('mixBtn').addEventListener('click', () => {
+  Object.assign(mix, state.targets[state.round]);
+  renderMix();
+  $('mixDialog').showModal();
+});
+$('mixCancel').addEventListener('click', () => $('mixDialog').close());
+$('mixForm').addEventListener('submit', () => setTarget({ ...mix }));
+
+/* ══════════════ 8. 버튼 연결 ══════════════ */
+
+$('mainBtn').addEventListener('click', () => {
+  if (state.done) advance();
+  else if (state.mode === 'idle') startCamera();
+  else if (state.mode === 'live') shoot();
+  else if (state.mode === 'photo') judge();
+});
+$('camBtn').addEventListener('click', () => {
+  if (state.mode === 'photo') {
+    if (state.stream) setMode('live'); else startCamera();
+    return;
+  }
+  state.facing = state.facing === 'environment' ? 'user' : 'environment';
+  startCamera();
+});
+$('uploadBtn').addEventListener('click', () => $('fileInput').click());
+$('fileInput').addEventListener('change', ev => {
+  const file = ev.target.files[0];
+  if (file) loadPhoto(file);
+  ev.target.value = '';
+});
+
+let dragging = false;
+viewport.addEventListener('pointerdown', ev => {
+  if (state.mode !== 'photo' || state.done) return;
+  dragging = true;
+  viewport.setPointerCapture(ev.pointerId);
+  moveReticle(ev);
+});
+viewport.addEventListener('pointermove', ev => { if (dragging) moveReticle(ev); });
+viewport.addEventListener('pointerup', () => { dragging = false; });
+viewport.addEventListener('pointercancel', () => { dragging = false; });
+
+$('rerollBtn').addEventListener('click', () => setTarget(randomTarget()));
+$('nextBtn').addEventListener('click', advance);
+$('restartBtn').addEventListener('click', openSetup);
+$('finalAgain').addEventListener('click', () => { $('finalDialog').close(); newGame(); popTurnTag(); });
+$('finalSetup').addEventListener('click', () => { $('finalDialog').close(); openSetup(); });
+
+// 스페이스바로도 찰칵 (물건을 들고 있을 때 편하다)
+document.addEventListener('keydown', ev => {
+  if (ev.code !== 'Space' || ev.repeat || document.querySelector('dialog[open]')) return;
+  if (ev.target.closest('button, input, textarea, select')) return;
+  ev.preventDefault();
+  // 찍자마자 실수로 한 번 더 눌러 점수를 못 보고 넘어가는 일을 막는다.
+  if (state.done && performance.now() - state.doneAt < 900) return;
+  $('mainBtn').click();
+});
+
+// 탭을 떠났다 돌아오면 카메라 미리보기 색 읽기를 다시 시작
+document.addEventListener('visibilitychange', () => { if (!document.hidden) liveLoop(); });
+
+// 처음에는 두 명짜리 판을 깔아 두고, 선수 정하기 창을 띄운다.
+newGame([{ name: '화가 1', color: PLAYER_COLORS[0] }, { name: '화가 2', color: PLAYER_COLORS[1] }], 5);
+openSetup();
+</script>
+</body>
+</html>
